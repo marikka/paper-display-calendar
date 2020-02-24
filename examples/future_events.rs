@@ -1,7 +1,7 @@
-use calendar::events_today;
+use calendar::future_events;
 fn main() {
     let ical_url = std::env::var("ICAL_URL").unwrap();
-    for event in events_today(&ical_url).unwrap() {
+    for event in future_events(&ical_url).unwrap() {
         println!("{:#?} {:#?}", event.start, event.summary);
     }
 }

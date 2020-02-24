@@ -7,12 +7,21 @@ pub struct Event {
     pub summary: String,
 }
 
-pub fn events(ical_url: &str) -> Result<Vec<Event>, reqwest::Error> {
+pub fn events_from_ical_url(ical_url: &str) -> Result<Vec<Event>, reqwest::Error> {
     let response = reqwest::get(ical_url)?;
     let bf = BufReader::new(response);
     let mut reader = ical::IcalParser::new(bf);
     let cal = reader.next().unwrap().unwrap();
     let mut events: Vec<Event> = parse_events(cal.events);
+    events.sort_by(|a, b| a.start.cmp(&b.start));
+    Ok(events)
+}
+
+pub fn events_from_ical_urls(ical_urls: Vec<&str>) -> Result<Vec<Event>, reqwest::Error> {
+    let mut events: Vec<Event> = ical_urls
+        .iter()
+        .flat_map(|url| events_from_ical_url(url).unwrap())
+        .collect();
     events.sort_by(|a, b| a.start.cmp(&b.start));
     Ok(events)
 }
@@ -42,15 +51,11 @@ fn parse_events(events: Vec<ical::parser::ical::component::IcalEvent>) -> Vec<Ev
         .collect();
 }
 
-pub fn events_today(ical_url: &str) -> Result<Vec<Event>, reqwest::Error> {
-    Ok(events(ical_url)?
-        .into_iter()
-        .filter(|e| e.start.date() == Utc::now().date())
-        .collect())
-}
-
 pub fn future_events(ical_url: &str) -> Result<Vec<Event>, reqwest::Error> {
-    Ok(events(ical_url)?.into_iter().collect())
+    Ok(events_from_ical_url(ical_url)?
+        .into_iter()
+        .filter(|e| e.start.date() >= Utc::now().date())
+        .collect())
 }
 
 #[cfg(test)]
