@@ -1,4 +1,7 @@
 use chrono::prelude::*;
+use chrono::Utc;
+use chrono_tz::Tz;
+use ical::property::Property;
 use std::io::BufReader;
 
 #[derive(Debug, PartialEq)]
@@ -30,23 +33,45 @@ fn parse_events(events: Vec<ical::parser::ical::component::IcalEvent>) -> Vec<Ev
     return events
         .iter()
         .filter_map(|event| {
-            let start: Option<&ical::property::Property> =
-                event.properties.iter().find(|p| p.name == "DTSTART");
-            let summary: Option<&ical::property::Property> =
-                event.properties.iter().find(|p| p.name == "SUMMARY");
+            let start: &ical::property::Property =
+                event.properties.iter().find(|p| p.name == "DTSTART")?;
+            let summary: &ical::property::Property =
+                event.properties.iter().find(|p| p.name == "SUMMARY")?;
 
-            if let (Some(start), Some(summary)) = (start, summary) {
-                if let (Some(start), Some(summary)) = (start.value.as_ref(), summary.value.as_ref())
-                {
-                    if let Ok(dt) = Utc.datetime_from_str(&start, "%Y%m%dT%H%M%SZ") {
-                        return Some(Event {
-                            start: dt,
-                            summary: summary.to_string(),
-                        });
+            if let (Some(start_value), Some(summary_value)) =
+                (start.value.as_ref(), summary.value.as_ref())
+            {
+                //Try getting an UTC time first
+                if let Ok(dt) = Utc.datetime_from_str(&start_value, "%Y%m%dT%H%M%SZ") {
+                    return Some(Event {
+                        start: dt,
+                        summary: summary_value.to_string(),
+                    });
+                }
+
+                //Try using a timezone
+                if let Some(params) = start.params.as_ref() {
+                    if let Some((_param_name, param_values)) =
+                        params.into_iter().find(|param| param.0 == "TZID")
+                    {
+                        if let Some(timezone) =
+                            param_values.first().map(|s| s.parse::<Tz>().ok()).flatten()
+                        {
+                            let datetime = timezone
+                                .datetime_from_str(&start_value, "%Y%m%dT%H%M%S")
+                                .unwrap();
+                            let utc = datetime.with_timezone(&Utc);
+                            return Some(Event {
+                                start: utc,
+                                summary: summary_value.to_string(),
+                            });
+                        }
                     }
                 }
+                None
+            } else {
+                None
             }
-            None
         })
         .collect();
 }
@@ -87,6 +112,36 @@ mod tests {
             parse_events(events),
             vec![Event {
                 start: Utc.ymd(2020, 01, 21).and_hms(20, 0, 0),
+                summary: String::from("foo")
+            }]
+        );
+    }
+
+    #[test]
+    fn parse_events_with_timezone() {
+        let events = vec![IcalEvent {
+            alarms: vec![],
+            properties: vec![
+                Property {
+                    name: String::from("DTSTART"),
+                    params: Some(vec![(
+                        String::from("TZID"),
+                        vec![String::from("America/New_York")],
+                    )]),
+                    value: Some(String::from("20200110T150000")),
+                },
+                Property {
+                    name: String::from("SUMMARY"),
+                    params: None,
+                    value: Some(String::from("foo")),
+                },
+            ],
+        }];
+
+        assert_eq!(
+            parse_events(events),
+            vec![Event {
+                start: Utc.ymd(2020, 01, 10).and_hms(20, 0, 0),
                 summary: String::from("foo")
             }]
         );
