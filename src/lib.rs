@@ -29,6 +29,11 @@ pub fn events_from_ical_urls(ical_urls: Vec<&str>) -> Result<Vec<Event>, reqwest
     Ok(events)
 }
 
+fn try_read_timezone(params: Option<&Vec<(String, Vec<String>)>>) -> Option<Tz> {
+    let tzid_param = &params?.iter().find(|param| param.0 == "TZID")?.1;
+    tzid_param.first()?.parse::<Tz>().ok()
+}
+
 fn parse_events(events: Vec<ical::parser::ical::component::IcalEvent>) -> Vec<Event> {
     return events
         .iter()
@@ -42,33 +47,29 @@ fn parse_events(events: Vec<ical::parser::ical::component::IcalEvent>) -> Vec<Ev
                 (start.value.as_ref(), summary.value.as_ref())
             {
                 //Try getting an UTC time first
-                if let Ok(dt) = Utc.datetime_from_str(&start_value, "%Y%m%dT%H%M%SZ") {
-                    return Some(Event {
+                let datetime = if let Ok(dt) = Utc.datetime_from_str(&start_value, "%Y%m%dT%H%M%SZ")
+                {
+                    Some(dt)
+                } else {
+                    if let Some(timezone) = try_read_timezone(start.params.as_ref()) {
+                        let datetime = timezone
+                            .datetime_from_str(&start_value, "%Y%m%dT%H%M%S")
+                            .unwrap();
+                        let utc = datetime.with_timezone(&Utc);
+                        Some(utc)
+                    } else {
+                        None
+                    }
+                };
+
+                if let Some(dt) = datetime {
+                    Some(Event {
                         start: dt,
                         summary: summary_value.to_string(),
-                    });
+                    })
+                } else {
+                    None
                 }
-
-                //Try using a timezone
-                if let Some(params) = start.params.as_ref() {
-                    if let Some((_param_name, param_values)) =
-                        params.into_iter().find(|param| param.0 == "TZID")
-                    {
-                        if let Some(timezone) =
-                            param_values.first().map(|s| s.parse::<Tz>().ok()).flatten()
-                        {
-                            let datetime = timezone
-                                .datetime_from_str(&start_value, "%Y%m%dT%H%M%S")
-                                .unwrap();
-                            let utc = datetime.with_timezone(&Utc);
-                            return Some(Event {
-                                start: utc,
-                                summary: summary_value.to_string(),
-                            });
-                        }
-                    }
-                }
-                None
             } else {
                 None
             }
