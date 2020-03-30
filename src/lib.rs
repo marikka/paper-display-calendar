@@ -34,6 +34,20 @@ fn try_read_timezone(params: Option<&Vec<(String, Vec<String>)>>) -> Option<Tz> 
     tzid_param.first()?.parse::<Tz>().ok()
 }
 
+fn try_read_utc_datetime(start_property: &Property) -> Option<DateTime<Utc>> {
+    Utc.datetime_from_str(start_property.value.as_ref()?, "%Y%m%dT%H%M%SZ")
+        .ok()
+}
+
+fn try_read_timezone_datetime(start_property: &Property) -> Option<DateTime<Utc>> {
+    let timezone = try_read_timezone(start_property.params.as_ref())?;
+    let datetime = timezone
+        .datetime_from_str(start_property.value.as_ref()?, "%Y%m%dT%H%M%S")
+        .ok()?;
+    let utc = datetime.with_timezone(&Utc);
+    Some(utc)
+}
+
 fn parse_events(events: Vec<ical::parser::ical::component::IcalEvent>) -> Vec<Event> {
     return events
         .iter()
@@ -42,37 +56,13 @@ fn parse_events(events: Vec<ical::parser::ical::component::IcalEvent>) -> Vec<Ev
                 event.properties.iter().find(|p| p.name == "DTSTART")?;
             let summary: &ical::property::Property =
                 event.properties.iter().find(|p| p.name == "SUMMARY")?;
-
-            if let (Some(start_value), Some(summary_value)) =
-                (start.value.as_ref(), summary.value.as_ref())
-            {
-                //Try getting an UTC time first
-                let datetime = if let Ok(dt) = Utc.datetime_from_str(&start_value, "%Y%m%dT%H%M%SZ")
-                {
-                    Some(dt)
-                } else {
-                    if let Some(timezone) = try_read_timezone(start.params.as_ref()) {
-                        let datetime = timezone
-                            .datetime_from_str(&start_value, "%Y%m%dT%H%M%S")
-                            .unwrap();
-                        let utc = datetime.with_timezone(&Utc);
-                        Some(utc)
-                    } else {
-                        None
-                    }
-                };
-
-                if let Some(dt) = datetime {
-                    Some(Event {
-                        start: dt,
-                        summary: summary_value.to_string(),
-                    })
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
+            let summary_value = summary.value.as_ref()?;
+            let datetime =
+                try_read_utc_datetime(start).or_else(|| try_read_timezone_datetime(start))?;
+            Some(Event {
+                start: datetime,
+                summary: summary_value.to_string(),
+            })
         })
         .collect();
 }
