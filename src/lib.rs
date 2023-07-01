@@ -11,7 +11,7 @@ pub struct Event {
 }
 
 pub fn events_from_ical_url(ical_url: &str) -> Result<Vec<Event>, reqwest::Error> {
-    let response = reqwest::get(ical_url)?;
+    let response = reqwest::blocking::get(ical_url)?;
     let bf = BufReader::new(response);
     let mut reader = ical::IcalParser::new(bf);
     let cal = reader.next().unwrap().unwrap();
