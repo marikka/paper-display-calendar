@@ -14,10 +14,14 @@ pub fn events_from_ical_url(ical_url: &str) -> Result<Vec<Event>, reqwest::Error
     let response = reqwest::blocking::get(ical_url)?;
     let bf = BufReader::new(response);
     let mut reader = ical::IcalParser::new(bf);
-    let cal = reader.next().unwrap().unwrap();
-    let mut events: Vec<Event> = parse_events(cal.events);
-    events.sort_by(|a, b| a.start.cmp(&b.start));
-    Ok(events)
+
+    if let Some(Ok(cal)) = reader.next() {
+        let mut events: Vec<Event> = parse_events(cal.events);
+        events.sort_by(|a, b| a.start.cmp(&b.start));
+        Ok(events)
+    } else {
+        Ok(vec![])
+    }
 }
 
 pub fn events_from_ical_urls(ical_urls: Vec<&str>) -> Result<Vec<Event>, reqwest::Error> {
@@ -70,7 +74,7 @@ fn parse_events(events: Vec<ical::parser::ical::component::IcalEvent>) -> Vec<Ev
 pub fn future_events(ical_url: &str) -> Result<Vec<Event>, reqwest::Error> {
     Ok(events_from_ical_url(ical_url)?
         .into_iter()
-        .filter(|e| e.start.date() >= Utc::now().date())
+        .filter(|e| e.start.date_naive() >= Utc::now().date_naive())
         .collect())
 }
 
